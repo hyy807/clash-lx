@@ -171,11 +171,15 @@ func ParseProxy(mapping map[string]any, options ...ProxyOption) (C.Proxy, error)
 			break
 		}
 		proxy, err = outbound.NewMieru(*mieruOption)
-	case "anytls":
+	case "anytls", "lightxtreme", "lx-anytls", "lx":
 		anytlsOption := &outbound.AnyTLSOption{BasicOption: basicOption}
 		err = decoder.Decode(mapping, anytlsOption)
 		if err != nil {
 			break
+		}
+		// 闪连私有类型名：默认走 lx-xhttp 传输（配置里显式写了 transport 则以配置为准）
+		if anytlsOption.Transport.Type == "" && (proxyType == "lightxtreme" || proxyType == "lx-anytls" || proxyType == "lx") {
+			anytlsOption.Transport.Type = "lx-xhttp"
 		}
 		proxy, err = outbound.NewAnyTLS(*anytlsOption)
 	case "sudoku":
