@@ -205,6 +205,15 @@ func Setup(options *SetupOptions) error {
 	}
 	configureStartupPhaseLogPath(phaseLogPath)
 	setupClashAPIPath = filepath.Join(options.BasePath, clashAPISocketName)
+	// Darwin 的 Unix socket 路径上限 103 字节。App Group / 沙盒 basePath 很长时
+	// socket 绑不上，API 整个不启动 —— 现象就是「能上网但任何节点都测不出延迟」。
+	// 超长就退到系统临时目录下的短名（client 也通过 ClashAPIPath() 拿同一路径）。
+	if len([]byte(setupClashAPIPath)) > clashAPIMaxUnixPathBytes {
+		short := filepath.Join(os.TempDir(), fmt.Sprintf("clash-%d.sock", os.Getpid()))
+		if len([]byte(short)) <= clashAPIMaxUnixPathBytes {
+			setupClashAPIPath = short
+		}
+	}
 	setupOOMEvidencePath = filepath.Join(options.BasePath, oomEvidenceFileName)
 	setupGoCrashReportBasePath = options.BasePath
 	setupGoCrashReportRole = currentGoCrashRole()
