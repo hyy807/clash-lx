@@ -58,6 +58,16 @@ type AnyTLSOption struct {
 	DisableReuse             bool             `proxy:"disable-reuse,omitempty"`
 	// LightXtreme / 闪连: anytls 承载在私有 lx-xhttp 传输之上
 	Transport LXHTTPOptions `proxy:"transport,omitempty"`
+
+	// 兼容把传输参数平铺在节点上的写法（type: lightxtreme 常见）
+	FlatObfsKey    string `proxy:"obfs-key,omitempty"`
+	FlatPath       string `proxy:"path,omitempty"`
+	FlatMode       string `proxy:"mode,omitempty"`
+	FlatPaddingMin int    `proxy:"padding-min,omitempty"`
+	FlatPaddingMax int    `proxy:"padding-max,omitempty"`
+	FlatDownload   string `proxy:"download,omitempty"`
+	FlatDownloadPath string `proxy:"download-path,omitempty"`
+	FlatDownloadPort int    `proxy:"download-port,omitempty"`
 }
 
 // LXHTTPOptions 闪连私有 XHTTP 传输配置。
@@ -222,6 +232,32 @@ func NewAnyTLS(option AnyTLSOption) (*AnyTLS, error) {
 		tlsConfig.Host = option.Server
 	}
 	tOption.TLSConfig = tlsConfig
+
+	// 平铺写法归一化进 Transport
+	if option.Transport.Type == "" &&
+		(option.FlatObfsKey != "" || option.FlatPath != "" || option.FlatDownload != "") {
+		option.Transport.Type = "lx-xhttp"
+	}
+	if option.Transport.ObfsKey == "" {
+		option.Transport.ObfsKey = option.FlatObfsKey
+	}
+	if option.Transport.Path == "" {
+		option.Transport.Path = option.FlatPath
+	}
+	if option.Transport.Mode == "" {
+		option.Transport.Mode = option.FlatMode
+	}
+	if option.Transport.PaddingMin == 0 {
+		option.Transport.PaddingMin = option.FlatPaddingMin
+	}
+	if option.Transport.PaddingMax == 0 {
+		option.Transport.PaddingMax = option.FlatPaddingMax
+	}
+	if option.Transport.Download.Server == "" && option.FlatDownload != "" {
+		option.Transport.Download.Server = option.FlatDownload
+		option.Transport.Download.Path = option.FlatDownloadPath
+		option.Transport.Download.Port = option.FlatDownloadPort
+	}
 
 	// LightXtreme / 闪连: anytls 承载在私有 lx-xhttp 传输之上
 	if option.Transport.Enabled() {

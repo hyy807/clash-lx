@@ -177,10 +177,8 @@ func ParseProxy(mapping map[string]any, options ...ProxyOption) (C.Proxy, error)
 		if err != nil {
 			break
 		}
-		// 闪连私有类型名：默认走 lx-xhttp 传输（配置里显式写了 transport 则以配置为准）
-		if anytlsOption.Transport.Type == "" && (proxyType == "lightxtreme" || proxyType == "lx-anytls" || proxyType == "lx") {
-			anytlsOption.Transport.Type = "lx-xhttp"
-		}
+		// 闪连私有类型名只是别名，不强制传输层：是否走 lx-xhttp 由
+		// obfs-key / path / download 这些参数是否存在决定（见 NewAnyTLS 归一化）。
 		proxy, err = outbound.NewAnyTLS(*anytlsOption)
 	case "sudoku":
 		sudokuOption := &outbound.SudokuOption{BasicOption: basicOption}
