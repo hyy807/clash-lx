@@ -13,6 +13,7 @@ import (
 	"github.com/ProjectClash/Clash/component/proxydialer"
 	C "github.com/ProjectClash/Clash/constant"
 	"github.com/ProjectClash/Clash/transport/anytls"
+	"github.com/ProjectClash/Clash/transport/lxxhttp"
 	"github.com/ProjectClash/Clash/transport/vmess"
 
 	M "github.com/metacubex/sing/common/metadata"
@@ -25,6 +26,7 @@ type AnyTLS struct {
 	client      *anytls.Client
 	closed      bool
 	buildClient func() *anytls.Client
+	lxClient    *lxxhttp.Client
 	option      *AnyTLSOption
 }
 
@@ -54,6 +56,33 @@ type AnyTLSOption struct {
 	IdleSessionTimeout       int              `proxy:"idle-session-timeout,omitempty"`
 	MinIdleSession           int              `proxy:"min-idle-session,omitempty"`
 	DisableReuse             bool             `proxy:"disable-reuse,omitempty"`
+	// LightXtreme / 闪连: anytls 承载在私有 lx-xhttp 传输之上
+	Transport LXHTTPOptions `proxy:"transport,omitempty"`
+}
+
+// LXHTTPOptions 闪连私有 XHTTP 传输配置。
+type LXHTTPOptions struct {
+	Type       string                `proxy:"type,omitempty"`
+	Path       string                `proxy:"path,omitempty"`
+	Mode       string                `proxy:"mode,omitempty"`
+	ObfsKey    string                `proxy:"obfs-key,omitempty"`
+	PaddingMin int                   `proxy:"padding-min,omitempty"`
+	PaddingMax int                   `proxy:"padding-max,omitempty"`
+	Download   LXHTTPDownloadOptions `proxy:"download,omitempty"`
+}
+
+type LXHTTPDownloadOptions struct {
+	Server string `proxy:"server,omitempty"`
+	Port   int    `proxy:"port,omitempty"`
+	Path   string `proxy:"path,omitempty"`
+}
+
+func (o LXHTTPOptions) Enabled() bool {
+	switch strings.ToLower(strings.TrimSpace(o.Type)) {
+	case "lx-xhttp", "xhttp", "lightxtreme", "闪电旋风劈":
+		return true
+	}
+	return false
 }
 
 func (t *AnyTLS) DialContext(ctx context.Context, metadata *C.Metadata) (_ C.Conn, err error) {
@@ -105,6 +134,9 @@ func (t *AnyTLS) Close() error {
 	t.clientMu.Lock()
 	defer t.clientMu.Unlock()
 	t.closed = true
+	if t.lxClient != nil {
+		_ = t.lxClient.Close()
+	}
 	if t.client == nil {
 		return nil
 	}
@@ -190,6 +222,33 @@ func NewAnyTLS(option AnyTLSOption) (*AnyTLS, error) {
 		tlsConfig.Host = option.Server
 	}
 	tOption.TLSConfig = tlsConfig
+
+	// LightXtreme / 闪连: anytls 承载在私有 lx-xhttp 传输之上
+	if option.Transport.Enabled() {
+		lxConfig := lxxhttp.Config{
+			Dialer:     outbound.dialer,
+			Server:     addr,
+			Path:       option.Transport.Path,
+			ObfsKey:    option.Transport.ObfsKey,
+			PaddingMin: option.Transport.PaddingMin,
+			PaddingMax: option.Transport.PaddingMax,
+			TLSConfig:  tlsConfig,
+		}
+		if download := option.Transport.Download; download.Server != "" {
+			downloadPort := download.Port
+			if downloadPort == 0 {
+				downloadPort = option.Port
+			}
+			lxConfig.DownloadServer = net.JoinHostPort(download.Server, strconv.Itoa(downloadPort))
+			lxConfig.DownloadPath = download.Path
+		}
+		lxClient, err := lxxhttp.NewClient(lxConfig)
+		if err != nil {
+			return nil, err
+		}
+		outbound.lxClient = lxClient
+		tOption.Dial = lxClient.DialContext
+	}
 
 	outbound.buildClient = func() *anytls.Client {
 		return anytls.NewClient(context.TODO(), tOption)
