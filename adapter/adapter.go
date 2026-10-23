@@ -342,7 +342,11 @@ func (p *Proxy) urlTestOnce(ctx context.Context, url string, expectedStatus util
 
 	_ = resp.Body.Close()
 
-	if unifiedDelay {
+	// Keep the completed first measurement independent of the optional warm probe.
+	// A failed second HEAD must not charge its timeout to the successful first one.
+	firstDelay := p.clock().Sub(start)
+	measuredDelay := firstDelay
+	if unifiedDelay && strings.HasPrefix(url, "https://") {
 		second := p.clock()
 		var ignoredErr error
 		var secondResp *http.Response
@@ -350,12 +354,9 @@ func (p *Proxy) urlTestOnce(ctx context.Context, url string, expectedStatus util
 		if ignoredErr == nil {
 			resp = secondResp
 			_ = resp.Body.Close()
-			start = second
+			measuredDelay = p.clock().Sub(second)
 		} else {
-			if strings.HasPrefix(url, "http://") {
-				log.Errorln("%s failed to get the second response from %s: %v", p.Name(), url, ignoredErr)
-				log.Warnln("It is recommended to use HTTPS for provider.health-check.url and group.url to ensure better reliability. Due to some proxy providers hijacking test addresses and not being compatible with repeated HEAD requests, using HTTP may result in failed tests.")
-			}
+			log.Debugln("%s warm URL test failed; retaining first response: %v", p.Name(), ignoredErr)
 		}
 	}
 
@@ -363,7 +364,7 @@ func (p *Proxy) urlTestOnce(ctx context.Context, url string, expectedStatus util
 	if resp != nil {
 		status = resp.StatusCode
 	}
-	t = uint16(p.clock().Sub(start) / time.Millisecond)
+	t = uint16(measuredDelay / time.Millisecond)
 	if t == 0 {
 		// a zero delay means a failed test to callers, so report a test
 		// that completed in under a millisecond as 1 ms

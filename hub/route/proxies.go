@@ -142,7 +142,9 @@ func getProxyDelay(w http.ResponseWriter, r *http.Request) {
 	} else {
 		delay, err = proxy.URLTest(ctx, url, expectedStatus)
 	}
-	if ctx.Err() != nil && !errors.Is(err, adapter.ErrURLTestDeferred) {
+	// A successful first HEAD remains valid if an optional warm HEAD used the
+	// remaining deadline. Only a failed measurement is a timeout response.
+	if ctx.Err() != nil && err != nil && !errors.Is(err, adapter.ErrURLTestDeferred) {
 		render.Status(r, http.StatusGatewayTimeout)
 		render.JSON(w, r, ErrRequestTimeout)
 		return
